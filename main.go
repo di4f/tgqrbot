@@ -5,6 +5,11 @@ import (
 	"os"
 	"log"
 	"github.com/omnipunk/tg"
+	qr "github.com/omnipunk/qr"
+	"net/http"
+	//"io"
+	"fmt"
+	"image/jpeg"
 )
 
 type Context = tg.Context
@@ -14,7 +19,42 @@ type Func = tg.Func
 var beh = tg.NewBehaviour().WithRootNode(tg.NewRootNode(
 	Func(func(c *Context){
 		c.Sendf("The bot started! Now send me photo of QR code to recognize it.")
-		for _ = range c.Input() {
+		for u := range c.Input() {
+			if u.Message != nil && u.Message.Photo != nil {
+				photo := u.Message.Photo[len(u.Message.Photo) - 1]
+				file, err := c.Bot.Api.GetFile(tg.FileConfig{FileID: photo.FileID})
+				if err != nil {
+					c.Sendf("err: %q", err.Error())
+					continue
+				}
+
+				r, err := http.Get(fmt.Sprintf(
+					"https://api.telegram.org/file/bot%s/%s",
+					c.Bot.Api.Token,
+					file.FilePath,
+				))
+				if err != nil || r.StatusCode != 200 {
+					if err != nil {
+						c.Sendf("err: %q", err.Error())
+					}
+					continue
+				}
+				defer r.Body.Close()
+
+				img, err := jpeg.Decode(r.Body)
+				if err != nil {
+					c.Sendf("err: %q", err.Error())
+					continue
+				}
+				codes, err := qr.Recognize(img)
+				if err != nil {
+					c.Sendf("err: %q", err.Error())
+					continue
+				}
+				for _, code := range codes {
+					c.Sendf2("`%s`", tg.Escape2(string(code.Payload)))
+				}
+			}
 		}
 	}),
 )).WithRoot(
